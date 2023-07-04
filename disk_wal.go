@@ -207,10 +207,16 @@ func newDiskWALReader(dir string) (*diskWALReader, error) {
 // readAll reads all segment files and caches the result for each operation.
 func (f *diskWALReader) readAll() error {
 	for _, file := range f.files {
-		if file.IsDir() {
-			return fmt.Errorf("unexpected directory found under the WAL directory: %s", file.Name())
+		name := file.Name()
+		if name[0] == '.' {
+			continue
 		}
-		fd, err := os.Open(filepath.Join(f.dir, file.Name()))
+
+		if file.IsDir() {
+			return fmt.Errorf("unexpected directory found under the WAL directory: %s", name)
+		}
+
+		fd, err := os.Open(filepath.Join(f.dir, name))
 		if err != nil {
 			return fmt.Errorf("failed to open WAL segment file: %w", err)
 		}
@@ -235,7 +241,7 @@ func (f *diskWALReader) readAll() error {
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("encounter an error while reading WAL segment file %q: %w", file.Name(), segment.error())
+			return fmt.Errorf("encounter an error while reading WAL segment file %q: %w", name, segment.error())
 		}
 	}
 	return nil
