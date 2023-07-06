@@ -90,6 +90,19 @@ type DataPoint struct {
 // Option is an optional setting for NewStorage.
 type Option func(*storage)
 
+// WithMetaMarshal specifies the meta struct marshal annd unmarshal function
+//
+// Defaults to json.Marshal, json.Unmarshal
+func WithMetaMarshal(
+	marshaler func(v any) ([]byte, error),
+	unmarshaler func(data []byte, v any) error,
+) Option {
+	return func(s *storage) {
+		s.metaMarshaler = marshaler
+		s.metaUnmarshaler = unmarshaler
+	}
+}
+
 // WithDataPath specifies the path to directory that stores time-series data.
 // Use this to make time-series data persistent on disk.
 //
@@ -154,7 +167,7 @@ func WithLogger(logger Logger) Option {
 	}
 }
 
-// WithWAL specifies the buffered byte size before flushing a WAL file.
+// WithWALBufferedSize specifies the buffered byte size before flushing a WAL file.
 // The larger the size, the less frequently the file is written and more write performance at the expense of durability.
 // Giving 0 means it writes to a file whenever data point comes in.
 // Giving -1 disables using WAL.
@@ -182,6 +195,8 @@ func NewStorage(opts ...Option) (Storage, error) {
 		wal:                &nopWAL{},
 		logger:             &nopLogger{},
 		doneCh:             make(chan struct{}, 0),
+		metaMarshaler:      json.Marshal,
+		metaUnmarshaler:    json.Unmarshal,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -223,7 +238,7 @@ func NewStorage(opts ...Option) (Storage, error) {
 			continue
 		}
 		path := filepath.Join(s.dataPath, e.Name())
-		part, err := openDiskPartition(path, s.retention)
+		part, err := openDiskPartition(path, s.retention, s.metaUnmarshaler)
 		if errors.Is(err, ErrNoDataPoints) {
 			continue
 		}
@@ -277,6 +292,9 @@ type storage struct {
 	timestampPrecision TimestampPrecision
 	dataPath           string
 	writeTimeout       time.Duration
+
+	metaMarshaler   func(v any) ([]byte, error)
+	metaUnmarshaler func(data []byte, v any) error
 
 	logger         Logger
 	workersLimitCh chan struct{}
@@ -476,7 +494,7 @@ func (s *storage) flushPartitions() error {
 		if err := s.flush(dir, memPart); err != nil {
 			return fmt.Errorf("failed to compact memory partition into %s: %w", dir, err)
 		}
-		newPart, err := openDiskPartition(dir, s.retention)
+		newPart, err := openDiskPartition(dir, s.retention, s.metaUnmarshaler)
 		if errors.Is(err, ErrNoDataPoints) {
 			if err := s.partitionList.remove(part); err != nil {
 				return fmt.Errorf("failed to remove partition: %w", err)
@@ -548,7 +566,7 @@ func (s *storage) flush(dirPath string, m *memoryPartition) error {
 		return true
 	})
 
-	b, err := json.Marshal(&meta{
+	b, err := s.metaMarshaler(&meta{
 		MinTimestamp:  m.minTimestamp(),
 		MaxTimestamp:  m.maxTimestamp(),
 		NumDataPoints: m.size(),

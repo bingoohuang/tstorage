@@ -2,7 +2,6 @@ package tstorage
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -56,7 +55,7 @@ type diskMetric struct {
 }
 
 // openDiskPartition first maps the data file into memory with memory-mapping.
-func openDiskPartition(dirPath string, retention time.Duration) (partition, error) {
+func openDiskPartition(dirPath string, retention time.Duration, unmarshaler func(data []byte, v any) error) (partition, error) {
 	if dirPath == "" {
 		return nil, fmt.Errorf("dir path is required")
 	}
@@ -87,13 +86,11 @@ func openDiskPartition(dirPath string, retention time.Duration) (partition, erro
 
 	// Read metadata to the heap
 	m := meta{}
-	mf, err := os.Open(metaFilePath)
+	mf, err := os.ReadFile(metaFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read metadata: %w", err)
 	}
-	defer mf.Close()
-	decoder := json.NewDecoder(mf)
-	if err := decoder.Decode(&m); err != nil {
+	if err := unmarshaler(mf, &m); err != nil {
 		return nil, fmt.Errorf("failed to decode metadata: %w", err)
 	}
 	return &diskPartition{

@@ -1,6 +1,7 @@
 package tstorage
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -30,7 +31,7 @@ func TestOpenDiskPartition(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := openDiskPartition(tt.dirPath, tt.retention)
+			got, err := openDiskPartition(tt.dirPath, tt.retention, json.Unmarshal)
 			assert.Equal(t, tt.wantErr, err != nil)
 			assert.Equal(t, tt.want, got)
 		})
