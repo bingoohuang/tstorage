@@ -114,6 +114,16 @@ func WithDataPath(dataPath string) Option {
 	}
 }
 
+// WithDataPathMaxSize specifies the path max size that stores time-series data.
+// Use this to clean oldest data on disk.
+//
+// Defaults to 0 which means no max size for the path.
+func WithDataPathMaxSize(dataPathMaxSize int64) Option {
+	return func(s *storage) {
+		s.dataPathMaxSize = dataPathMaxSize
+	}
+}
+
 // WithPartitionDuration specifies the timestamp range of partitions.
 // Once it exceeds the given time range, the new partition gets inserted.
 //
@@ -239,7 +249,7 @@ func NewStorage(opts ...Option) (Storage, error) {
 			continue
 		}
 		path := filepath.Join(s.dataPath, e.Name())
-		part, err := openDiskPartition(path, s.retention, s.metaUnmarshaler)
+		part, err := openDiskPartition(path, s.retention, s.metaUnmarshaler, s.logger)
 		if errors.Is(err, ErrNoDataPoints) {
 			continue
 		}
@@ -264,7 +274,7 @@ func NewStorage(opts ...Option) (Storage, error) {
 	}
 	s.newPartition(nil, false)
 
-	// periodically check and permanently remove expired partitions.
+	// periodically check and permanently remove needClean partitions.
 	go func() {
 		ticker := time.NewTicker(checkExpiredInterval)
 		defer ticker.Stop()
@@ -273,8 +283,7 @@ func NewStorage(opts ...Option) (Storage, error) {
 			case <-s.doneCh:
 				return
 			case <-ticker.C:
-				err := s.removeExpiredPartitions()
-				if err != nil {
+				if err := s.removeExpiredPartitions(); err != nil {
 					s.logger.Printf("%v\n", err)
 				}
 			}
@@ -289,16 +298,20 @@ type storage struct {
 	logger        Logger
 	partitionList partitionList
 
-	metaMarshaler func(v any) ([]byte, error)
+	workersLimitCh chan struct{}
 
-	doneCh          chan struct{}
-	workersLimitCh  chan struct{}
 	metaUnmarshaler func(data []byte, v any) error
+
+	doneCh chan struct{}
+
+	metaMarshaler func(v any) ([]byte, error)
 
 	dataPath           string
 	timestampPrecision TimestampPrecision
 	// wg must be incremented to guarantee all writes are done gracefully.
 	wg sync.WaitGroup
+
+	dataPathMaxSize int64
 
 	writeTimeout time.Duration
 
@@ -443,7 +456,7 @@ func (s *storage) Close() error {
 		return fmt.Errorf("failed to close storage: %w", err)
 	}
 	if err := s.removeExpiredPartitions(); err != nil {
-		return fmt.Errorf("failed to remove expired partitions: %w", err)
+		return fmt.Errorf("failed to remove needClean partitions: %w", err)
 	}
 	// All partitions have been flushed, so WAL isn't needed anymore.
 	if err := s.wal.removeAll(); err != nil {
@@ -498,7 +511,7 @@ func (s *storage) flushPartitions() error {
 		if err := s.flush(dir, memPart); err != nil {
 			return fmt.Errorf("failed to compact memory partition into %s: %w", dir, err)
 		}
-		newPart, err := openDiskPartition(dir, s.retention, s.metaUnmarshaler)
+		newPart, err := openDiskPartition(dir, s.retention, s.metaUnmarshaler, s.logger)
 		if errors.Is(err, ErrNoDataPoints) {
 			if err := s.partitionList.remove(part); err != nil {
 				return fmt.Errorf("failed to remove partition: %w", err)
@@ -592,22 +605,61 @@ func (s *storage) flush(dirPath string, m *memoryPartition) error {
 func (s *storage) removeExpiredPartitions() error {
 	expiredList := make([]partition, 0)
 	iterator := s.partitionList.newIterator()
+
+	recycleDirSize := int64(0)
+	if s.dataPathMaxSize > 0 {
+		dirSize, err := DirSize(s.dataPath)
+		if err != nil {
+			return fmt.Errorf("get dir size %s: %w", s.dataPath, err)
+		}
+		recycleDirSize = dirSize - s.dataPathMaxSize
+	}
+
 	for iterator.next() {
 		part := iterator.value()
 		if part == nil {
 			return fmt.Errorf("unexpected nil partition found")
 		}
-		if part.expired() {
+
+		if part.needClean(&recycleDirSize) {
 			expiredList = append(expiredList, part)
+		} else {
+			break
 		}
 	}
 
 	for i := range expiredList {
 		if err := s.partitionList.remove(expiredList[i]); err != nil {
-			return fmt.Errorf("failed to remove expired partition")
+			return fmt.Errorf("failed to remove needClean partition")
 		}
 	}
 	return nil
+}
+
+// DirSize calculates the directory size recursively
+func DirSize(baseDir string) (int64, error) {
+	if baseDir == "" {
+		return 0, nil
+	}
+
+	var totalSize int64
+	// WalkDir will walk the dir recursively
+	if err := filepath.WalkDir(baseDir, func(root string, info os.DirEntry, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+
+		fi, err := info.Info()
+		if err != nil {
+			return err
+		}
+		totalSize += fi.Size()
+		return nil
+	}); err != nil {
+		return 0, err
+	}
+
+	return totalSize, nil
 }
 
 // recoverWAL inserts all records within the given wal, and then removes all WAL segment files.

@@ -23,6 +23,7 @@ var errInvalidPartition = errors.New("invalid partition")
 // It mainly has two files, data file and meta file.
 // The data file is memory-mapped and read only; no need to lock at all.
 type diskPartition struct {
+	logger Logger
 	// file descriptor of data file
 	f       *os.File
 	dirPath string
@@ -53,7 +54,7 @@ type diskMetric struct {
 }
 
 // openDiskPartition first maps the data file into memory with memory-mapping.
-func openDiskPartition(dirPath string, retention time.Duration, unmarshaler func(data []byte, v any) error) (partition, error) {
+func openDiskPartition(dirPath string, retention time.Duration, unmarshaler func(data []byte, v any) error, logger Logger) (partition, error) {
 	if dirPath == "" {
 		return nil, fmt.Errorf("dir path is required")
 	}
@@ -97,6 +98,7 @@ func openDiskPartition(dirPath string, retention time.Duration, unmarshaler func
 		f:          f,
 		mappedFile: mapped,
 		retention:  retention,
+		logger:     logger,
 	}, nil
 }
 
@@ -105,8 +107,8 @@ func (d *diskPartition) insertRows(_ []Row) ([]Row, error) {
 }
 
 func (d *diskPartition) selectDataPoints(metric string, labels []Label, start, end int64) ([]*DataPoint, error) {
-	if d.expired() {
-		return nil, fmt.Errorf("this partition is expired: %w", ErrNoDataPoints)
+	if d.needClean(nil) {
+		return nil, fmt.Errorf("this partition is needClean: %w", ErrNoDataPoints)
 	}
 	name := marshalMetricName(metric, labels)
 	mt, ok := d.meta.Metrics[name]
@@ -140,22 +142,12 @@ func (d *diskPartition) selectDataPoints(metric string, labels []Label, start, e
 	return points, nil
 }
 
-func (d *diskPartition) minTimestamp() int64 {
-	return d.meta.MinTimestamp
-}
-
-func (d *diskPartition) maxTimestamp() int64 {
-	return d.meta.MaxTimestamp
-}
-
-func (d *diskPartition) size() int {
-	return d.meta.NumDataPoints
-}
+func (d *diskPartition) minTimestamp() int64 { return d.meta.MinTimestamp }
+func (d *diskPartition) maxTimestamp() int64 { return d.meta.MaxTimestamp }
+func (d *diskPartition) size() int           { return d.meta.NumDataPoints }
 
 // Disk partition is immutable.
-func (d *diskPartition) active() bool {
-	return false
-}
+func (d *diskPartition) active() bool { return false }
 
 func (d *diskPartition) clean() error {
 	if err := os.RemoveAll(d.dirPath); err != nil {
@@ -165,10 +157,16 @@ func (d *diskPartition) clean() error {
 	return nil
 }
 
-func (d *diskPartition) expired() bool {
-	diff := time.Since(d.meta.CreatedAt)
-	if diff > d.retention {
+func (d *diskPartition) needClean(recycleDirSize *int64) bool {
+	if recycleDirSize != nil && *recycleDirSize > 0 {
+		if dirSize, err := DirSize(d.dirPath); err != nil {
+			d.logger.Printf("E! read dir size %s: %v", d.dirPath, err)
+		} else {
+			*recycleDirSize -= dirSize
+		}
 		return true
 	}
-	return false
+
+	diff := time.Since(d.meta.CreatedAt)
+	return diff > d.retention
 }

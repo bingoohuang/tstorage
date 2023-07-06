@@ -142,18 +142,9 @@ func (m *memoryPartition) getMetric(name string) *memoryMetric {
 	return value.(*memoryMetric)
 }
 
-func (m *memoryPartition) minTimestamp() int64 {
-	return atomic.LoadInt64(&m.minT)
-}
-
-func (m *memoryPartition) maxTimestamp() int64 {
-	return atomic.LoadInt64(&m.maxT)
-}
-
-func (m *memoryPartition) size() int {
-	return int(atomic.LoadInt64(&m.numPoints))
-}
-
+func (m *memoryPartition) minTimestamp() int64 { return atomic.LoadInt64(&m.minT) }
+func (m *memoryPartition) maxTimestamp() int64 { return atomic.LoadInt64(&m.maxT) }
+func (m *memoryPartition) size() int           { return int(atomic.LoadInt64(&m.numPoints)) }
 func (m *memoryPartition) active() bool {
 	return m.maxTimestamp()-m.minTimestamp()+1 < m.partitionDuration
 }
@@ -164,9 +155,7 @@ func (m *memoryPartition) clean() error {
 	return nil
 }
 
-func (m *memoryPartition) expired() bool {
-	return false
-}
+func (m *memoryPartition) needClean(*int64) bool { return false }
 
 // memoryMetric has a list of ordered data points that belong to the memoryMetric
 type memoryMetric struct {
