@@ -11,21 +11,22 @@ import (
 // A memoryPartition implements a partition to store data points on heap.
 // It offers a goroutine safe capabilities.
 type memoryPartition struct {
+	// Write ahead log.
+	wal wal
+
+	// A hash map from metric name to memoryMetric.
+	metrics sync.Map
+
+	timestampPrecision TimestampPrecision
 	// The number of data points
 	numPoints int64
 	// minT is immutable.
 	minT int64
 	maxT int64
 
-	// A hash map from metric name to memoryMetric.
-	metrics sync.Map
-
-	// Write ahead log.
-	wal wal
 	// The timestamp range of partitions after which they get persisted
-	partitionDuration  int64
-	timestampPrecision TimestampPrecision
-	once               sync.Once
+	partitionDuration int64
+	once              sync.Once
 }
 
 func newMemoryPartition(wal wal, partitionDuration time.Duration, precision TimestampPrecision) partition {
@@ -169,13 +170,13 @@ func (m *memoryPartition) expired() bool {
 
 // memoryMetric has a list of ordered data points that belong to the memoryMetric
 type memoryMetric struct {
-	name         string
-	size         int64
-	minTimestamp int64
-	maxTimestamp int64
+	name string
 	// points must kept in order
 	points           []*DataPoint
 	outOfOrderPoints []*DataPoint
+	size             int64
+	minTimestamp     int64
+	maxTimestamp     int64
 	mu               sync.RWMutex
 }
 

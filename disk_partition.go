@@ -17,20 +17,18 @@ const (
 	metaFileName = "meta.json"
 )
 
-var (
-	errInvalidPartition = errors.New("invalid partition")
-)
+var errInvalidPartition = errors.New("invalid partition")
 
 // A disk partition implements a partition that uses local disk as a storage.
 // It mainly has two files, data file and meta file.
 // The data file is memory-mapped and read only; no need to lock at all.
 type diskPartition struct {
-	dirPath string
-	meta    meta
 	// file descriptor of data file
-	f *os.File
+	f       *os.File
+	dirPath string
 	// memory-mapped file backed by f
 	mappedFile []byte
+	meta       meta
 	// duration to store data
 	retention time.Duration
 }
@@ -38,11 +36,11 @@ type diskPartition struct {
 // meta is a mapper for a meta file, which is put for each partition.
 // Note that the CreatedAt is surely timestamped by tstorage but Min/Max Timestamps are likely to do by other process.
 type meta struct {
+	CreatedAt     time.Time             `json:"createdAt"`
+	Metrics       map[string]diskMetric `json:"metrics"`
 	MinTimestamp  int64                 `json:"minTimestamp"`
 	MaxTimestamp  int64                 `json:"maxTimestamp"`
 	NumDataPoints int                   `json:"numDataPoints"`
-	Metrics       map[string]diskMetric `json:"metrics"`
-	CreatedAt     time.Time             `json:"createdAt"`
 }
 
 // diskMetric holds meta data to access actual data from the memory-mapped file.

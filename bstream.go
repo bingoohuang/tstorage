@@ -85,7 +85,7 @@ func (b *bstream) writeByte(byt byte) {
 }
 
 func (b *bstream) writeBits(u uint64, nbits int) {
-	u <<= (64 - uint(nbits))
+	u <<= 64 - uint(nbits)
 	for nbits >= 8 {
 		byt := byte(u >> 56)
 		b.writeByte(byt)
@@ -160,7 +160,7 @@ func (b *bstreamReader) readBits(nbits uint8) (uint64, error) {
 	}
 
 	bitmask = (uint64(1) << nbits) - 1
-	v = v | ((b.buffer >> (b.valid - nbits)) & bitmask)
+	v |= (b.buffer >> (b.valid - nbits)) & bitmask
 	b.valid -= nbits
 
 	return v, nil
@@ -219,7 +219,7 @@ func (b *bstreamReader) loadNextBuffer(nbits uint8) bool {
 
 	buffer := uint64(0)
 	for i := 0; i < nbytes; i++ {
-		buffer = buffer | (uint64(b.stream[b.streamOffset+i]) << uint(8*(nbytes-i-1)))
+		buffer |= uint64(b.stream[b.streamOffset+i]) << uint(8*(nbytes-i-1))
 	}
 
 	b.buffer = buffer

@@ -51,9 +51,9 @@ type partitionIterator interface {
 }
 
 type partitionListImpl struct {
-	numPartitions int64
 	head          *partitionNode
 	tail          *partitionNode
+	numPartitions int64
 	mu            sync.RWMutex
 }
 

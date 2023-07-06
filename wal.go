@@ -28,8 +28,8 @@ type wal interface {
 }
 
 type nopWAL struct {
-	filename string
 	f        *os.File
+	filename string
 	mu       sync.Mutex
 }
 

@@ -24,14 +24,14 @@ import (
   └── 1
 */
 type diskWAL struct {
-	dir          string
-	bufferedSize int
 	// Buffered-writer to the active segment
 	w *bufio.Writer
 	// File descriptor to the active segment
-	fd    *os.File
-	index uint32
-	mu    sync.Mutex
+	fd           *os.File
+	dir          string
+	bufferedSize int
+	mu           sync.Mutex
+	index        uint32
 }
 
 func newDiskWAL(dir string, bufferedSize int) (wal, error) {
@@ -172,7 +172,7 @@ func (w *diskWAL) refresh() error {
 // createSegmentFile creates a new file with the name of the numbering index.
 func (w *diskWAL) createSegmentFile(dir string) (*os.File, error) {
 	name := strconv.Itoa(int(atomic.LoadUint32(&w.index)))
-	f, err := os.OpenFile(filepath.Join(dir, name), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(filepath.Join(dir, name), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create segment file: %w", err)
 	}
@@ -181,8 +181,8 @@ func (w *diskWAL) createSegmentFile(dir string) (*os.File, error) {
 }
 
 type walRecord struct {
-	op  walOperation
 	row Row
+	op  walOperation
 }
 
 type diskWALReader struct {
@@ -226,8 +226,7 @@ func (f *diskWALReader) readAll() error {
 		}
 		for segment.next() {
 			rec := segment.record()
-			switch rec.op {
-			case operationInsert:
+			if rec.op == operationInsert {
 				f.rowsToInsert = append(f.rowsToInsert, rec.row)
 			}
 		}
@@ -249,11 +248,11 @@ func (f *diskWALReader) readAll() error {
 
 // segment represents a segment file.
 type segment struct {
+	err  error
 	file *os.File
 	r    *bufio.Reader
 	// FIXME: Use interface to support other operation type
 	current walRecord
-	err     error
 }
 
 func (f *segment) next() bool {

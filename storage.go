@@ -18,6 +18,7 @@ import (
 )
 
 var (
+	// ErrNoDataPoints is the error that means no data points.
 	ErrNoDataPoints = errors.New("no data points found")
 
 	// Limit the concurrency for data ingestion to GOMAXPROCS, since this operation
@@ -33,9 +34,9 @@ type TimestampPrecision string
 
 const (
 	Nanoseconds  TimestampPrecision = "ns"
-	Microseconds TimestampPrecision = "us"
-	Milliseconds TimestampPrecision = "ms"
-	Seconds      TimestampPrecision = "s"
+	Microseconds                    = "us"
+	Milliseconds                    = "ms"
+	Seconds                         = "s"
 
 	defaultPartitionDuration  = 1 * time.Hour
 	defaultRetention          = 336 * time.Hour
@@ -283,25 +284,28 @@ func NewStorage(opts ...Option) (Storage, error) {
 }
 
 type storage struct {
+	wal wal
+
+	logger        Logger
 	partitionList partitionList
 
-	walBufferedSize    int
-	wal                wal
-	partitionDuration  time.Duration
-	retention          time.Duration
-	timestampPrecision TimestampPrecision
-	dataPath           string
-	writeTimeout       time.Duration
+	metaMarshaler func(v any) ([]byte, error)
 
-	metaMarshaler   func(v any) ([]byte, error)
+	doneCh          chan struct{}
+	workersLimitCh  chan struct{}
 	metaUnmarshaler func(data []byte, v any) error
 
-	logger         Logger
-	workersLimitCh chan struct{}
+	dataPath           string
+	timestampPrecision TimestampPrecision
 	// wg must be incremented to guarantee all writes are done gracefully.
 	wg sync.WaitGroup
 
-	doneCh chan struct{}
+	writeTimeout time.Duration
+
+	retention         time.Duration
+	partitionDuration time.Duration
+
+	walBufferedSize int
 }
 
 func (s *storage) InsertRows(rows []Row) error {

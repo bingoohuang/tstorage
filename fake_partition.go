@@ -1,12 +1,11 @@
 package tstorage
 
 type fakePartition struct {
+	err       error
 	minT      int64
 	maxT      int64
 	numPoints int
 	IsActive  bool
-
-	err error
 }
 
 func (f *fakePartition) insertRows(_ []Row) ([]Row, error) {

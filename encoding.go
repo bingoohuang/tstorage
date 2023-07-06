@@ -204,15 +204,16 @@ func newSeriesDecoder(r io.Reader) (seriesDecoder, error) {
 }
 
 type gorillaDecoder struct {
-	br      bstreamReader
-	numRead uint16
+	br bstreamReader
 
 	// timestamp of the Nth data point
 	t      int64
 	tDelta uint64
 
 	// value of the Nth data point
-	v        float64
+	v       float64
+	numRead uint16
+
 	leading  uint8
 	trailing uint8
 }
@@ -241,7 +242,7 @@ func (d *gorillaDecoder) decodePoint(dst *DataPoint) error {
 			return err
 		}
 		d.tDelta = tDelta
-		d.t = d.t + int64(d.tDelta)
+		d.t += int64(d.tDelta)
 
 		if err := d.readValue(); err != nil {
 			return err
@@ -301,13 +302,13 @@ func (d *gorillaDecoder) decodePoint(dst *DataPoint) error {
 		}
 		if bits > (1 << (sz - 1)) {
 			// or something
-			bits = bits - (1 << sz)
+			bits -= 1 << sz
 		}
 		deltaOfDelta = int64(bits)
 	}
 
 	d.tDelta = uint64(int64(d.tDelta) + deltaOfDelta)
-	d.t = d.t + int64(d.tDelta)
+	d.t += int64(d.tDelta)
 
 	if err := d.readValue(); err != nil {
 		return err
