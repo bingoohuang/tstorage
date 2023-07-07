@@ -54,7 +54,7 @@ type diskMetric struct {
 }
 
 // openDiskPartition first maps the data file into memory with memory-mapping.
-func openDiskPartition(dirPath string, retention time.Duration, unmarshaler func(data []byte, v any) error, logger Logger) (partition, error) {
+func openDiskPartition(dirPath string, retention time.Duration, unmarshaler MetaUnmarshaler, logger Logger) (partition, error) {
 	if dirPath == "" {
 		return nil, fmt.Errorf("dir path is required")
 	}

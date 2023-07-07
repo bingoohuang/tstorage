@@ -91,13 +91,15 @@ type DataPoint struct {
 // Option is an optional setting for NewStorage.
 type Option func(*storage)
 
+type (
+	MetaMarshaler   func(v any) ([]byte, error)
+	MetaUnmarshaler func(data []byte, v any) error
+)
+
 // WithMetaMarshal specifies the meta struct marshal annd unmarshal function
 //
 // Defaults to json.Marshal, json.Unmarshal
-func WithMetaMarshal(
-	marshaler func(v any) ([]byte, error),
-	unmarshaler func(data []byte, v any) error,
-) Option {
+func WithMetaMarshal(marshaler MetaMarshaler, unmarshaler MetaUnmarshaler) Option {
 	return func(s *storage) {
 		s.metaMarshaler = marshaler
 		s.metaUnmarshaler = unmarshaler
@@ -300,11 +302,10 @@ type storage struct {
 
 	workersLimitCh chan struct{}
 
-	metaUnmarshaler func(data []byte, v any) error
+	metaMarshaler   MetaMarshaler
+	metaUnmarshaler MetaUnmarshaler
 
 	doneCh chan struct{}
-
-	metaMarshaler func(v any) ([]byte, error)
 
 	dataPath           string
 	timestampPrecision TimestampPrecision
